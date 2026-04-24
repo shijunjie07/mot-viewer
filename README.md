@@ -182,9 +182,6 @@ Key fields used by the viewer:
 | id         | Track identity |
 | x, y, w, h | Bounding box   |
 
-Additional columns are ignored if present.
-
-
 
 ## Use Cases
 
