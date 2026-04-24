@@ -2,7 +2,7 @@
 
 A lightweight MOT dataset viewer built with Flask.
 
-![MOT Viewer demo](docs/assets/mot_viewer.gif)
+![MOT Viewer demo](docs/assets/mot_viewer.png)
 
 ## Installation
 
