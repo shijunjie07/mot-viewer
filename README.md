@@ -94,7 +94,7 @@ By default, dataset definitions are stored in:
 instance/datasets.json
 ```
 
-This file is used for **local configuration only** and is typically excluded from version control.
+This file is used for **local configuration only**.
 
 To override the path:
 
