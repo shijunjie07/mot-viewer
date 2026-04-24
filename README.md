@@ -9,19 +9,11 @@ A lightweight Flask-based viewer for inspecting Multi-Object Tracking (MOT) data
 ## Table of Contents
 
 - [Overview](#overview)
-- [Features](#features)
-- [Supported Datasets](#supported-datasets)
 - [Installation](#installation)
-- [Run](#run)
-- [Dataset Configuration](#dataset-configuration)
-- [Adding Custom Datasets](#adding-custom-datasets)
-- [Expected Dataset Structure](#expected-dataset-structure)
-- [Annotation Format](#annotation-format)
-- [Use Cases](#use-cases)
+- [Usage](#run)
+- [Dataset Setup](#dataset-configuration)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
-- [Ideas & Feature Requests](#ideas--feature-requests)
-- [Repository Notes](#repository-notes)
 - [License](#license)
 
 
