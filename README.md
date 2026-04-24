@@ -4,7 +4,7 @@ A lightweight Flask-based viewer for inspecting Multi-Object Tracking (MOT) data
 
 ![MOT Viewer demo](docs/assets/mot_viewer.png)
 
----
+
 
 ## Table of Contents
 
@@ -24,7 +24,7 @@ A lightweight Flask-based viewer for inspecting Multi-Object Tracking (MOT) data
 - [Repository Notes](#repository-notes)
 - [License](#license)
 
----
+
 
 ## Overview
 
@@ -32,7 +32,7 @@ MOT Viewer provides a simple browser interface for inspecting tracking datasets 
 
 The viewer supports common MOT-style datasets such as SoccerNet-Tracking and DanceTrack, and can be easily extended to custom datasets through a configuration file or the web interface.
 
----
+
 
 ## Features
 
@@ -43,7 +43,7 @@ The viewer supports common MOT-style datasets such as SoccerNet-Tracking and Dan
 - Configure dataset-specific layouts (splits, folders, filenames)  
 - Store local dataset configurations separately via `instance/`  
 
----
+
 
 ## Supported Datasets
 
@@ -54,7 +54,7 @@ The viewer supports common MOT-style datasets such as SoccerNet-Tracking and Dan
 
 Other MOT-style datasets can be added as long as their structure and annotations are compatible.
 
----
+
 
 ## Installation
 
@@ -78,7 +78,7 @@ conda activate mot-viewer
 pip install -e .
 ```
 
----
+
 
 ## Run
 
@@ -92,7 +92,7 @@ Open in browser:
 http://127.0.0.1:5000
 ```
 
----
+
 
 ## Dataset Configuration
 
@@ -110,7 +110,7 @@ To override the path:
 export MOT_VIEWER_DATASETS_CONFIG=/path/to/datasets.json
 ```
 
----
+
 
 ## Adding Custom Datasets
 
@@ -144,7 +144,7 @@ Edit `instance/datasets.json` manually:
 
 Datasets are loaded at startup, and changes from the UI are written back to this file.
 
----
+
 
 ## Expected Dataset Structure
 
@@ -172,7 +172,7 @@ Default MOT-style layout:
 * Ground-truth defaults to `gt.txt`
 * Custom layouts can be configured during dataset registration
 
----
+
 
 ## Annotation Format
 
@@ -192,7 +192,7 @@ Key fields used by the viewer:
 
 Additional columns are ignored if present.
 
----
+
 
 ## Use Cases
 
@@ -201,7 +201,7 @@ Additional columns are ignored if present.
 * Compare annotation quality across datasets
 * Debug dataset conversion pipelines
 
----
+
 
 ## Roadmap
 
@@ -211,7 +211,7 @@ Planned improvements:
 * [ ] Improve UI for sequence navigation and playback
 * [ ] Add video export (annotated sequences)
 * [ ] Support additional annotation formats (e.g. COCO-style tracking)
----
+
 
 ## Contributing
 
@@ -225,7 +225,7 @@ Contributions are welcome.
 
 For major changes, please open an issue first to discuss your ideas.
 
----
+
 
 ## Ideas & Feature Requests
 
@@ -236,14 +236,14 @@ Feel free to open an issue for:
 * Visualization features
 * Workflow integrations
 
----
+
 
 ## Repository Notes
 
 * `instance/` is for local configuration and should not be committed
 * Documentation assets should be placed in `docs/assets/`
 
----
+
 
 ## License
 
