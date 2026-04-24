@@ -4,20 +4,46 @@ A lightweight Flask-based viewer for inspecting Multi-Object Tracking (MOT) data
 
 ![MOT Viewer demo](docs/assets/mot_viewer.png)
 
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Features](#features)
+- [Supported Datasets](#supported-datasets)
+- [Installation](#installation)
+- [Run](#run)
+- [Dataset Configuration](#dataset-configuration)
+- [Adding Custom Datasets](#adding-custom-datasets)
+- [Expected Dataset Structure](#expected-dataset-structure)
+- [Annotation Format](#annotation-format)
+- [Use Cases](#use-cases)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Ideas & Feature Requests](#ideas--feature-requests)
+- [Repository Notes](#repository-notes)
+- [License](#license)
+
+---
+
 ## Overview
 
 MOT Viewer provides a simple browser interface for inspecting tracking datasets without writing custom visualization scripts. It is designed for quick validation of dataset structure, annotation quality, and sequence-level consistency.
 
 The viewer supports common MOT-style datasets such as SoccerNet-Tracking and DanceTrack, and can be easily extended to custom datasets through a configuration file or the web interface.
 
+---
+
 ## Features
 
-- Browse MOT image sequences frame by frame
-- Visualize bounding boxes and track IDs
-- Switch between multiple datasets in the browser
-- Register new datasets without modifying source code
-- Configure dataset-specific layouts (splits, folders, filenames)
-- Store local dataset configurations separately via `instance/`
+- Browse MOT image sequences frame by frame  
+- Visualize bounding boxes and track IDs  
+- Switch between multiple datasets in the browser  
+- Register new datasets without modifying source code  
+- Configure dataset-specific layouts (splits, folders, filenames)  
+- Store local dataset configurations separately via `instance/`  
+
+---
 
 ## Supported Datasets
 
@@ -27,6 +53,8 @@ The viewer supports common MOT-style datasets such as SoccerNet-Tracking and Dan
 | DanceTrack | Multi-human tracking dataset with similar appearance and complex motion | https://dancetrack.github.io/ |
 
 Other MOT-style datasets can be added as long as their structure and annotations are compatible.
+
+---
 
 ## Installation
 
@@ -50,6 +78,8 @@ conda activate mot-viewer
 pip install -e .
 ```
 
+---
+
 ## Run
 
 ```bash
@@ -61,6 +91,8 @@ Open in browser:
 ```
 http://127.0.0.1:5000
 ```
+
+---
 
 ## Dataset Configuration
 
@@ -77,6 +109,8 @@ To override the path:
 ```bash
 export MOT_VIEWER_DATASETS_CONFIG=/path/to/datasets.json
 ```
+
+---
 
 ## Adding Custom Datasets
 
@@ -110,6 +144,8 @@ Edit `instance/datasets.json` manually:
 
 Datasets are loaded at startup, and changes from the UI are written back to this file.
 
+---
+
 ## Expected Dataset Structure
 
 Default MOT-style layout:
@@ -136,6 +172,8 @@ Default MOT-style layout:
 * Ground-truth defaults to `gt.txt`
 * Custom layouts can be configured during dataset registration
 
+---
+
 ## Annotation Format
 
 Expected format follows MOTChallenge style:
@@ -154,6 +192,8 @@ Key fields used by the viewer:
 
 Additional columns are ignored if present.
 
+---
+
 ## Use Cases
 
 * Validate tracking annotations before training
@@ -161,10 +201,49 @@ Additional columns are ignored if present.
 * Compare annotation quality across datasets
 * Debug dataset conversion pipelines
 
+---
+
+## Roadmap
+
+Planned improvements:
+
+* [ ] Add support for more MOT datasets (e.g. MOT17, SportsMOT)
+* [ ] Improve UI for sequence navigation and playback
+* [ ] Add video export (annotated sequences)
+* [ ] Support additional annotation formats (e.g. COCO-style tracking)
+---
+
+## Contributing
+
+Contributions are welcome.
+
+1. Fork the repository
+2. Create a new branch (`feature/your-feature-name`)
+3. Make your changes
+4. Commit with clear messages
+5. Open a Pull Request
+
+For major changes, please open an issue first to discuss your ideas.
+
+---
+
+## Ideas & Feature Requests
+
+Feel free to open an issue for:
+
+* New dataset support
+* UI/UX improvements
+* Visualization features
+* Workflow integrations
+
+---
+
 ## Repository Notes
 
 * `instance/` is for local configuration and should not be committed
-* Assets for documentation should be placed in `docs/assets/`
+* Documentation assets should be placed in `docs/assets/`
+
+---
 
 ## License
 
