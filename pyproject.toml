@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mot-viewer"
+version = "0.1.0"
+description = "A lightweight Flask-based MOT dataset viewer with pluggable dataset definitions."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "Flask>=3.0",
+  "opencv-python>=4.8",
+  "numpy>=1.24",
+  "pandas>=2.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["mot_viewer*"]

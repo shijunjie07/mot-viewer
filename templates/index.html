@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>MOT Viewer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>MOT Viewer</h1>
+
+      <div class="group">
+        <label>Dataset</label>
+        <select id="datasetSelect"></select>
+      </div>
+
+      <div class="group">
+        <button id="toggleDatasetFormBtn" type="button">Add Dataset</button>
+      </div>
+
+      <div id="datasetFormPanel" class="group collapsiblePanel" style="display: none;">
+        <input id="datasetNameInput" type="text" placeholder="name, e.g. mot17" />
+        <input id="datasetRootInput" type="text" placeholder="/path/to/dataset/root" />
+        <input id="datasetSplitsInput" type="text" placeholder="splits (optional), e.g. train,val,test" />
+        <input id="datasetImageDirInput" type="text" placeholder="image dir (default: img1)" />
+        <input id="datasetGtFilesInput" type="text" placeholder="gt files (default: gt_vis.txt,gt.txt)" />
+        <input id="datasetSeqinfoInput" type="text" placeholder="seqinfo filename (optional, default: seqinfo.ini)" />
+        <input id="datasetGameinfoInput" type="text" placeholder="gameinfo filename (optional, default: gameinfo.ini)" />
+        <div class="row">
+          <button id="datasetSaveBtn" type="button">Save Dataset</button>
+          <button id="datasetCancelBtn" type="button" class="secondaryBtn">Cancel</button>
+        </div>
+        <div id="datasetFormStatus" class="hint">Custom datasets are stored locally for future runs. seqinfo.ini and gameinfo.ini are optional.</div>
+      </div>
+
+      <div class="group">
+        <label>Split</label>
+        <select id="splitSelect"></select>
+      </div>
+
+      <div class="group">
+        <label>Sequence</label>
+        <select id="seqSelect"></select>
+      </div>
+
+      <div class="group">
+        <label>Annotation Type</label>
+        <select id="annotationTypeSelect">
+          <option value="gt">GT</option>
+          <option value="det">DET</option>
+        </select>
+      </div>
+
+      <div class="group">
+        <label>Annotation File</label>
+        <select id="annotationFileSelect"></select>
+        <div class="hint" id="annotationHint">Choose a GT or DET file from this sequence.</div>
+      </div>
+
+      <div class="group">
+        <label>Frame</label>
+        <input id="frameSlider" type="range" min="0" max="0" value="0" />
+        <div class="hint" id="frameHint">frame_idx: 0</div>
+      </div>
+
+      <div class="group">
+        <label class="check"><input type="checkbox" id="showGT" checked /> Show GT</label>
+        <label class="check"><input type="checkbox" id="showBBox" checked /> BBox</label>
+        <label class="check"><input type="checkbox" id="showID" checked /> ID</label>
+        <label class="check"><input type="checkbox" id="showVis" checked /> Show Visibility Text</label>
+        <label class="check"><input type="checkbox" id="highlightVis" checked /> Highlight vis != 1</label>
+      </div>
+
+      <div class="group">
+        <label>Box Base Color</label>
+        <input type="color" id="boxColor" value="#35e6fd" />
+        <label>Visibility Color</label>
+        <input type="color" id="visColor" value="#ff0000" />
+        <label class="check">
+          <input type="radio" name="colorMode" value="fixed" checked />
+          Fixed (same strength)
+        </label>
+        <label class="check">
+          <input type="radio" name="colorMode" value="by_vis" />
+          By visibility (same color, strength by vis)
+        </label>
+
+        <div class="hint">
+          Toggle `Highlight vis != 1` off to draw all detections with the base box color only.
+        </div>
+      </div>
+
+      <div class="group">
+        <label>Go to Frame</label>
+        <div class="row">
+          <input id="frameInput" type="number" placeholder="e.g. 120" />
+          <button id="goBtn">Go</button>
+        </div>
+
+        <label class="check">
+          <input type="radio" name="frameMode" value="idx" checked />
+          frame_idx (0-based)
+        </label>
+        <label class="check">
+          <input type="radio" name="frameMode" value="mot" />
+          MOT frame (from filename)
+        </label>
+      </div>
+
+      <div class="group">
+        <label>Playback</label>
+        <div class="row">
+          <button id="playBtn" class="navBtn">▶ Play</button>
+          <button id="stopBtn" class="navBtn" disabled>⏹ Stop</button>
+        </div>
+        <label>Playback Speed</label>
+        <input id="playbackSpeed" type="range" min="0.1" max="1" step="0.1" value="1" />
+        <div class="hint" id="speedHint">1x</div>
+      </div>
+
+      <div class="group">
+        <button id="refreshBtn">Refresh</button>
+      </div>
+
+      <div class="hint small">
+        Hover a box to dim others and add a dark overlay for focus. Keyboard: ← / →.
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div id="statusText">Ready</div>
+        <div class="topRight">
+          <div id="hoverInfo" class="hoverInfo">Hover: none</div>
+        </div>
+      </div>
+
+      <div class="viewer">
+        <div class="canvasWrap">
+          <canvas id="frameCanvas"></canvas>
+          
+          <!-- Zoom controls overlay -->
+          <div class="zoomControlsOverlay">
+            <button id="zoomInBtn" class="zoomControlBtn" title="Zoom In (Magnifying Glass)">🔍+</button>
+            <button id="zoomOutBtn" class="zoomControlBtn" title="Zoom Out">🔍−</button>
+            <button id="panBtn" class="zoomControlBtn" title="Pan/Drag Mode">✋</button>
+            <button id="rectZoomBtn" class="zoomControlBtn" title="Select Rectangle to Zoom">📦</button>
+          </div>
+          
+          <!-- Minimap overlay (hidden by default) -->
+          <div id="minimapOverlay" class="minimapOverlay" style="display: none;">
+            <div id="minimapContainer" class="minimapContainer">
+              <canvas id="minimapCanvas" class="minimapCanvas"></canvas>
+              <div id="minimapRect" class="minimapRect"></div>
+            </div>
+          </div>
+          
+          <div class="bottomBar">
+            <button id="prevBtn" class="navBtn">◀ Prev</button>
+            <div id="viewerInfo" class="viewerInfo">Frame</div>
+            <button id="nextBtn" class="navBtn">Next ▶</button>
+          </div>
+        </div>
+
+        <div class="metaPanel">
+          <div class="metaCard">
+            <div class="metaTitle">gameinfo</div>
+            <div id="gameinfoBox" class="metaBody">No data</div>
+          </div>
+
+          <div class="metaCard">
+            <div class="metaTitle">seqinfo</div>
+            <div id="seqinfoBox" class="metaBody">No data</div>
+          </div>
+
+          <div class="metaCard">
+            <div class="metaTitle">Locked Box</div>
+            <div id="lockedBoxInfo" class="metaBody">No selection</div>
+          </div>
+
+          <div class="metaCard">
+            <div class="metaTitle">Zoom</div>
+            <div class="row">
+              <input id="zoomInput" type="number" placeholder="e.g. 100" min="10" max="400" value="100" />
+              <button id="zoomResetBtn" class="zoomBtn">Reset</button>
+            </div>
+            <div class="hint" id="zoomHint">100%</div>
+          </div>
+          
+          <div class="group">
+              <label>Frames where vis != 1</label>
+              <div class="hint">Click to jump (uses MOT frame)</div>
+              <div id="visList" class="visList"></div>
+          </div>
+    
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
