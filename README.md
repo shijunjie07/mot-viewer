@@ -173,6 +173,24 @@ Use **File -> Export...** to export:
 
 Exports can include no annotations, currently visible layers, or custom selected layers. Generated files are written under `instance/exports/`. The browser download starts automatically after completion, and a `Download again` link remains available.
 
+## ROI Batch Export
+
+Use **ROI Export** in the top toolbar to draw one rectangular crop region on the current frame. Drag inside the rectangle to move it, drag a corner handle to resize it, or edit **X**, **Y**, **Width**, and **Height** in the export dialog. ROI coordinates are stored in native source-image pixels.
+
+Open **File -> Export...** and choose **ROI Batch Export** to configure:
+
+| Setting | Options |
+| --- | --- |
+| Frames | Current frame, current frame to end, whole sequence, or custom inclusive range |
+| Content | Raw, Annotated, or Raw + Annotated |
+| Annotated rendering | Crop current rendered view, or re-render annotations inside crop |
+| Output | Image sequence, video, or both |
+| Image destination | ZIP download, plus folder saving in browsers that expose directory access |
+
+ZIP output is always generated as the fallback for image sequences. Folder saving uses the browser File System Access API when available; unsupported browsers keep ZIP download enabled.
+
+Only one ROI is active at a time. Drawing a new ROI replaces the old one. The ROI persists across frame navigation and across sequences with the same native resolution. It is cleared when a new sequence uses a different native width or height.
+
 ## Canvas Background and Zoom
 
 MOTScope supports different viewer canvas backgrounds, including White Grid, Black Grid, Plain White, and Plain Black. The default is White Grid. The canvas background is only used in the viewer workspace and does not modify the original image, video, or exported dataset files.
