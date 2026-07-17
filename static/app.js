@@ -2374,7 +2374,6 @@ async function runExport() {
       exportStatus.textContent = `ROI export failed: ${e.message}`;
     } finally {
       exportBtn.disabled = false;
-      updateRoiExportControls();
     }
     return;
   }
