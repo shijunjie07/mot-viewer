@@ -63,6 +63,8 @@
         <option value="4">4x</option>
       </select>
       <button id="themeToggleBtn" class="toolBtn secondaryBtn" type="button">Dark</button>
+      <button id="roiModeBtn" class="toolBtn secondaryBtn" type="button" title="Draw or edit an ROI for batch export">ROI Export</button>
+      <button id="roiClearBtn" class="toolBtn secondaryBtn" type="button" title="Clear the active ROI" disabled>Clear ROI</button>
       <button id="refreshBtn" class="toolBtn secondaryBtn">Refresh</button>
     </div>
 
@@ -247,13 +249,84 @@
             <option value="frame">Current Frame</option>
             <option value="images">Whole Sequence as Images ZIP</option>
             <option value="video">Whole Sequence as Video</option>
+            <option value="roi">ROI Batch Export</option>
           </select>
         </div>
         <div class="group">
           <label>Format</label>
           <select id="exportFormat"></select>
         </div>
-        <div class="group">
+        <div id="roiExportPanel" class="roiExportPanel" hidden>
+          <div class="section-title compactTitle">ROI</div>
+          <div class="roiActionRow">
+            <button id="roiSelectBtn" type="button" class="compactBtn">Select ROI</button>
+            <button id="roiDialogClearBtn" type="button" class="compactBtn secondaryBtn">Clear</button>
+            <span id="roiSourceInfo" class="hint">No ROI selected</span>
+          </div>
+          <div class="roiFieldGrid">
+            <label>X <input id="roiXInput" type="number" min="0" step="1" /></label>
+            <label>Y <input id="roiYInput" type="number" min="0" step="1" /></label>
+            <label>Width <input id="roiWInput" type="number" min="2" step="1" /></label>
+            <label>Height <input id="roiHInput" type="number" min="2" step="1" /></label>
+          </div>
+          <div id="roiValidationText" class="hint"></div>
+
+          <div class="section-title compactTitle">Frames</div>
+          <div class="group">
+            <label>Range</label>
+            <select id="roiRangeMode">
+              <option value="current">Current frame</option>
+              <option value="currentToEnd">Current frame to end</option>
+              <option value="wholeSequence">Whole sequence</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </div>
+          <div id="roiCustomRange" class="roiFieldGrid" hidden>
+            <label>Start <input id="roiRangeStart" type="number" step="1" /></label>
+            <label>End <input id="roiRangeEnd" type="number" step="1" /></label>
+          </div>
+          <div id="roiFrameCountText" class="hint">Frames: 0</div>
+
+          <div class="section-title compactTitle">Content</div>
+          <div class="group">
+            <label>Content</label>
+            <select id="roiContentSelect">
+              <option value="raw">Raw</option>
+              <option value="annotated">Annotated</option>
+              <option value="both">Raw + Annotated</option>
+            </select>
+          </div>
+          <div id="roiAnnotatedModeGroup" class="group">
+            <label>Annotated rendering</label>
+            <select id="roiAnnotatedMode">
+              <option value="rendered">Crop current rendered view</option>
+              <option value="rerender">Re-render annotations inside crop</option>
+            </select>
+          </div>
+
+          <div class="section-title compactTitle">Output</div>
+          <div class="group">
+            <label>Output</label>
+            <select id="roiOutputSelect">
+              <option value="images">Image sequence</option>
+              <option value="video">Video</option>
+              <option value="both">Image sequence + Video</option>
+            </select>
+          </div>
+          <div id="roiImageDestinationGroup" class="group">
+            <label>Image destination</label>
+            <select id="roiImageDestination">
+              <option value="zip">Download ZIP</option>
+              <option value="folder">Save to folder where supported</option>
+            </select>
+            <div id="roiDirectoryHint" class="hint">ZIP is always generated as a fallback.</div>
+          </div>
+          <div class="group">
+            <label>Optional custom prefix</label>
+            <input id="roiPrefixInput" type="text" placeholder="e.g. left-court" />
+          </div>
+        </div>
+        <div id="exportAnnotationGroup" class="group">
           <label>Annotations</label>
           <label class="check"><input type="radio" name="exportAnnotationMode" value="none" /> No annotations</label>
           <label class="check"><input type="radio" name="exportAnnotationMode" value="visible" checked /> Use currently visible layers</label>
@@ -280,6 +353,9 @@
         </div>
         <div id="progressPercent" class="progressPercent">0%</div>
         <div id="progressMessage" class="hint">Starting</div>
+      </div>
+      <div class="modalFooter">
+        <button id="progressCancelBtn" type="button" class="secondaryBtn">Cancel</button>
       </div>
     </div>
   </div>

@@ -150,6 +150,9 @@ def main() -> None:
         assert 'data-canvas-bg="white-grid"' in html
         assert 'id="canvasBackgroundSelect"' in html
         assert 'id="canvasBgMenu"' in html
+        assert 'id="roiModeBtn"' in html
+        assert 'id="roiExportPanel"' in html
+        assert 'id="roiRangeMode"' in html
 
         css = Path("static/style.css").read_text(encoding="utf-8")
         for mode in ["white-grid", "black-grid", "plain-white", "plain-black"]:
@@ -160,6 +163,8 @@ def main() -> None:
         assert "const MIN_ZOOM = 0.1" in js
         assert "const MAX_ZOOM = 8.0" in js
         assert "const ZOOM_STEP = 1.15" in js
+        assert "function roiExportPayload" in js
+        assert "showDirectoryPicker" in js
 
         response = client.get("/api/annotations?dataset=fixture&split=train&seq=seq001")
         assert response.status_code == 200, response.get_data(as_text=True)
@@ -252,6 +257,33 @@ def main() -> None:
         assert export_job["status"] == "done", export_job
         assert export_job["progress"] == 100
         assert_download(client, export_job["result"]["download_url"], "mp4")
+
+        response = client.post(
+            "/api/export/start",
+            json={
+                "target": "roi",
+                "dataset": "fixture",
+                "split": "train",
+                "sequence": "seq001",
+                "frame": 1,
+                "roi": {"x": 4, "y": 5, "width": 20, "height": 18},
+                "frame_range": {"mode": "custom", "start": 1, "end": 3},
+                "content": "both",
+                "annotated_rendering": "rerender",
+                "outputs": "images",
+                "image_format": "png",
+                "annotation_mode": "visible",
+                "selected_layers": ["Ground Truth", "Detections"],
+                "format": "png",
+            },
+        )
+        assert response.status_code == 202, response.get_data(as_text=True)
+        roi_job = wait_for_job(client, response.get_json()["job_id"])
+        assert roi_job["status"] == "done", roi_job
+        assert roi_job["result"]["available"] is True
+        assert roi_job["result"]["frame_range"]["total"] == 3
+        assert roi_job["result"]["directory_files"], roi_job
+        assert_download(client, roi_job["result"]["download_url"], "zip")
 
         invalid = client.post(
             "/api/export/frame",

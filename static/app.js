@@ -58,6 +58,8 @@ const stopBtn = document.getElementById("stopBtn");
 const playbackModeSelect = document.getElementById("playbackModeSelect");
 const playbackSpeed = document.getElementById("playbackSpeed");
 const speedHint = document.getElementById("speedHint");
+const roiModeBtn = document.getElementById("roiModeBtn");
+const roiClearBtn = document.getElementById("roiClearBtn");
 const viewerInfo = document.getElementById("viewerInfo");
 const hoverInfo = document.getElementById("hoverInfo");
 
@@ -85,12 +87,36 @@ const openExportBtn = document.getElementById("openExportBtn");
 const openExportMenuBtn = document.getElementById("openExportMenuBtn");
 const exportModal = document.getElementById("exportModal");
 const exportCancelBtn = document.getElementById("exportCancelBtn");
+const exportAnnotationGroup = document.getElementById("exportAnnotationGroup");
+const roiExportPanel = document.getElementById("roiExportPanel");
+const roiSelectBtn = document.getElementById("roiSelectBtn");
+const roiDialogClearBtn = document.getElementById("roiDialogClearBtn");
+const roiSourceInfo = document.getElementById("roiSourceInfo");
+const roiXInput = document.getElementById("roiXInput");
+const roiYInput = document.getElementById("roiYInput");
+const roiWInput = document.getElementById("roiWInput");
+const roiHInput = document.getElementById("roiHInput");
+const roiValidationText = document.getElementById("roiValidationText");
+const roiRangeMode = document.getElementById("roiRangeMode");
+const roiCustomRange = document.getElementById("roiCustomRange");
+const roiRangeStart = document.getElementById("roiRangeStart");
+const roiRangeEnd = document.getElementById("roiRangeEnd");
+const roiFrameCountText = document.getElementById("roiFrameCountText");
+const roiContentSelect = document.getElementById("roiContentSelect");
+const roiAnnotatedModeGroup = document.getElementById("roiAnnotatedModeGroup");
+const roiAnnotatedMode = document.getElementById("roiAnnotatedMode");
+const roiOutputSelect = document.getElementById("roiOutputSelect");
+const roiImageDestinationGroup = document.getElementById("roiImageDestinationGroup");
+const roiImageDestination = document.getElementById("roiImageDestination");
+const roiDirectoryHint = document.getElementById("roiDirectoryHint");
+const roiPrefixInput = document.getElementById("roiPrefixInput");
 const progressModal = document.getElementById("progressModal");
 const progressTitle = document.getElementById("progressTitle");
 const progressFill = document.getElementById("progressFill");
 const progressPercent = document.getElementById("progressPercent");
 const progressMessage = document.getElementById("progressMessage");
 const progressCloseBtn = document.getElementById("progressCloseBtn");
+const progressCancelBtn = document.getElementById("progressCancelBtn");
 const colorPickerModal = document.getElementById("colorPickerModal");
 const colorPickerTitle = document.getElementById("colorPickerTitle");
 const colorPickerCloseBtn = document.getElementById("colorPickerCloseBtn");
@@ -123,6 +149,10 @@ let colorPickerState = null;
 let isPlaying = false;
 let playbackIntervalId = null;
 let activeProgressJob = null;
+let activeRoi = null;
+let roiSourceSize = null;
+let roiSelectionMode = false;
+let roiDragState = null;
 
 // Zoom and pan state
 let zoomLevel = 1.0; // 1.0 = 100%
@@ -745,6 +775,7 @@ function drawVideoOverlay() {
 function showProgressModal(title, message = "Starting") {
   progressTitle.textContent = title;
   progressCloseBtn.disabled = true;
+  if (progressCancelBtn) progressCancelBtn.disabled = false;
   progressFill.style.width = "0%";
   progressPercent.textContent = "0%";
   progressMessage.textContent = message;
@@ -760,6 +791,7 @@ function updateProgressModal(payload) {
 
 function hideProgressModalSoon() {
   progressCloseBtn.disabled = false;
+  if (progressCancelBtn) progressCancelBtn.disabled = true;
   setTimeout(() => {
     if (!activeProgressJob) {
       progressModal.style.display = "none";
@@ -781,9 +813,17 @@ async function runJobWithProgress(url, payload, title) {
     }
     if (job.status === "failed") {
       activeProgressJob = null;
+      if (progressCancelBtn) progressCancelBtn.disabled = true;
       progressCloseBtn.disabled = false;
       progressMessage.textContent = job.error || "Job failed";
       throw new Error(job.error || "Job failed");
+    }
+    if (job.status === "cancelled") {
+      activeProgressJob = null;
+      if (progressCancelBtn) progressCancelBtn.disabled = true;
+      progressCloseBtn.disabled = false;
+      progressMessage.textContent = "Cancelled";
+      throw new Error("Export cancelled");
     }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
@@ -919,6 +959,203 @@ function canvasPointFromEvent(e) {
     x: (e.clientX - rect.left) * sx,
     y: (e.clientY - rect.top) * sy,
   };
+}
+
+function currentSourceSize() {
+  if (!currentImage) return null;
+  return { width: currentImage.naturalWidth, height: currentImage.naturalHeight };
+}
+
+function sameSourceSize(a, b) {
+  return !!a && !!b && a.width === b.width && a.height === b.height;
+}
+
+function clampRoi(rect, source = currentSourceSize()) {
+  if (!rect || !source) return null;
+  const minSize = 2;
+  const width = Math.max(minSize, Math.min(Math.round(rect.width), source.width));
+  const height = Math.max(minSize, Math.min(Math.round(rect.height), source.height));
+  const x = Math.max(0, Math.min(Math.round(rect.x), source.width - width));
+  const y = Math.max(0, Math.min(Math.round(rect.y), source.height - height));
+  return { x, y, width, height };
+}
+
+function normalizeRoiDrag(start, end, source = currentSourceSize()) {
+  return clampRoi({
+    x: Math.floor(Math.min(start.x, end.x)),
+    y: Math.floor(Math.min(start.y, end.y)),
+    width: Math.ceil(Math.max(start.x, end.x)) - Math.floor(Math.min(start.x, end.x)),
+    height: Math.ceil(Math.max(start.y, end.y)) - Math.floor(Math.min(start.y, end.y)),
+  }, source);
+}
+
+function setActiveRoi(rect, message = "") {
+  const source = currentSourceSize();
+  activeRoi = rect ? clampRoi(rect, source) : null;
+  roiSourceSize = activeRoi && source ? Object.assign({}, source) : null;
+  updateRoiUI();
+  redrawActiveViewer();
+  if (message) setStatus(message);
+}
+
+function clearActiveRoi(message = "") {
+  activeRoi = null;
+  roiSourceSize = null;
+  roiDragState = null;
+  updateRoiUI();
+  redrawActiveViewer();
+  if (message) setStatus(message);
+}
+
+function setRoiSelectionMode(enabled) {
+  roiSelectionMode = !!enabled;
+  if (roiModeBtn) roiModeBtn.classList.toggle("active", roiSelectionMode);
+  if (viewerStage) viewerStage.classList.toggle("roi-active", roiSelectionMode);
+  if (roiSelectionMode) {
+    zoomMode = "pan";
+    updateZoomButtonsUI();
+    setStatus("ROI mode: drag on the frame to select a crop region.");
+  }
+}
+
+function updateRoiUI() {
+  const hasRoi = !!activeRoi;
+  if (roiClearBtn) roiClearBtn.disabled = !hasRoi;
+  if (roiDialogClearBtn) roiDialogClearBtn.disabled = !hasRoi;
+  if (roiSourceInfo) {
+    roiSourceInfo.textContent = hasRoi && roiSourceSize
+      ? `Source ${roiSourceSize.width} x ${roiSourceSize.height}`
+      : "No ROI selected";
+  }
+  for (const input of [roiXInput, roiYInput, roiWInput, roiHInput]) {
+    if (input) input.disabled = !currentImage;
+  }
+  if (hasRoi) {
+    roiXInput.value = activeRoi.x;
+    roiYInput.value = activeRoi.y;
+    roiWInput.value = activeRoi.width;
+    roiHInput.value = activeRoi.height;
+    roiValidationText.textContent = `ROI: ${activeRoi.width} x ${activeRoi.height} at (${activeRoi.x}, ${activeRoi.y})`;
+    roiValidationText.classList.remove("errorText");
+  } else if (roiValidationText) {
+    roiValidationText.textContent = "Draw an ROI or enter numeric source-pixel coordinates.";
+    roiValidationText.classList.remove("errorText");
+  }
+  updateRoiExportControls();
+}
+
+function updateRoiFromFields() {
+  const source = currentSourceSize();
+  if (!source) return;
+  const values = [roiXInput, roiYInput, roiWInput, roiHInput].map(input => Number(input.value));
+  if (values.some(value => !Number.isFinite(value))) {
+    roiValidationText.textContent = "Enter numeric ROI values.";
+    roiValidationText.classList.add("errorText");
+    return;
+  }
+  const rect = clampRoi({ x: values[0], y: values[1], width: values[2], height: values[3] }, source);
+  if (!rect || rect.width < 2 || rect.height < 2) {
+    roiValidationText.textContent = "ROI width and height must be at least 2 pixels.";
+    roiValidationText.classList.add("errorText");
+    return;
+  }
+  activeRoi = rect;
+  roiSourceSize = Object.assign({}, source);
+  updateRoiUI();
+  redrawActiveViewer();
+}
+
+function currentFrameRange() {
+  const first = lastFrameInfo && lastFrameInfo.min_frame !== undefined ? parseInt(lastFrameInfo.min_frame, 10) : 1;
+  const last = lastFrameInfo && lastFrameInfo.max_frame !== undefined ? parseInt(lastFrameInfo.max_frame, 10) : first;
+  const current = currentExportFrame();
+  const mode = roiRangeMode ? roiRangeMode.value : "current";
+  let start = current;
+  let end = current;
+  if (mode === "currentToEnd") {
+    start = current;
+    end = last;
+  } else if (mode === "wholeSequence") {
+    start = first;
+    end = last;
+  } else if (mode === "custom") {
+    start = parseInt(roiRangeStart.value || first, 10);
+    end = parseInt(roiRangeEnd.value || last, 10);
+    if (start > end) return { start, end, total: 0, error: "Start frame must be before end frame." };
+  }
+  start = Math.max(first, Math.min(last, start));
+  end = Math.max(first, Math.min(last, end));
+  if (start > end) return { start, end, total: 0, error: "Frame range is empty." };
+  return { start, end, total: end - start + 1, error: null };
+}
+
+function updateRoiExportControls() {
+  if (!roiExportPanel) return;
+  const isRoi = exportTarget && exportTarget.value === "roi";
+  roiExportPanel.hidden = !isRoi;
+  if (exportAnnotationGroup) exportAnnotationGroup.style.display = isRoi ? "none" : "";
+  if (exportLayerList) exportLayerList.style.display = isRoi ? "none" : "";
+  if (roiCustomRange) roiCustomRange.hidden = roiRangeMode.value !== "custom";
+  const content = roiContentSelect.value;
+  roiAnnotatedModeGroup.style.display = content === "raw" ? "none" : "";
+  const output = roiOutputSelect.value;
+  roiImageDestinationGroup.style.display = output === "video" ? "none" : "";
+  const directorySupported = "showDirectoryPicker" in window;
+  roiImageDestination.querySelector('option[value="folder"]').disabled = !directorySupported;
+  roiDirectoryHint.textContent = directorySupported
+    ? "Folder saving is available in this browser. ZIP is still generated."
+    : "This browser does not expose folder saving here. ZIP remains available.";
+  const range = currentFrameRange();
+  roiFrameCountText.textContent = range.error
+    ? range.error
+    : `Frames: ${range.total} (${range.start} to ${range.end}, inclusive)`;
+  const disabledReason = !activeRoi
+    ? "Draw or enter a valid ROI before exporting."
+    : range.error
+      ? range.error
+      : "";
+  if (isRoi && disabledReason) {
+    exportBtn.disabled = true;
+    exportStatus.textContent = disabledReason;
+  } else if (isRoi) {
+    exportBtn.disabled = false;
+    exportStatus.textContent = "ROI export is ready.";
+  }
+}
+
+function roiHandleAt(point) {
+  if (!activeRoi) return null;
+  const tolerance = Math.max(4, 8 / zoomLevel);
+  const handles = {
+    nw: { x: activeRoi.x, y: activeRoi.y },
+    ne: { x: activeRoi.x + activeRoi.width, y: activeRoi.y },
+    sw: { x: activeRoi.x, y: activeRoi.y + activeRoi.height },
+    se: { x: activeRoi.x + activeRoi.width, y: activeRoi.y + activeRoi.height },
+  };
+  for (const [name, handle] of Object.entries(handles)) {
+    if (Math.abs(point.x - handle.x) <= tolerance && Math.abs(point.y - handle.y) <= tolerance) return name;
+  }
+  return null;
+}
+
+function pointInsideRoi(point) {
+  return activeRoi
+    && point.x >= activeRoi.x
+    && point.x <= activeRoi.x + activeRoi.width
+    && point.y >= activeRoi.y
+    && point.y <= activeRoi.y + activeRoi.height;
+}
+
+function resizeRoiFromHandle(rect, handle, point) {
+  let left = rect.x;
+  let top = rect.y;
+  let right = rect.x + rect.width;
+  let bottom = rect.y + rect.height;
+  if (handle.includes("w")) left = point.x;
+  if (handle.includes("e")) right = point.x;
+  if (handle.includes("n")) top = point.y;
+  if (handle.includes("s")) bottom = point.y;
+  return normalizeRoiDrag({ x: left, y: top }, { x: right, y: bottom });
 }
 
 function zoomByFactor(factor, anchorX = canvas.width / 2, anchorY = canvas.height / 2) {
@@ -1298,6 +1535,34 @@ function drawLockedBoxOnTop() {
   hoverInfo.textContent = `Locked: ${b.layer || "layer"} id=${b.id} | ${vStr} | ${bbStr}`;
 }
 
+function drawRoiOverlay() {
+  const rect = roiDragState && roiDragState.draft ? roiDragState.draft : activeRoi;
+  if (!rect) return;
+  ctx.save();
+  ctx.lineWidth = Math.max(1.5 / zoomLevel, 0.75);
+  ctx.strokeStyle = "#f59e0b";
+  ctx.fillStyle = "rgba(245, 158, 11, 0.16)";
+  ctx.setLineDash(roiDragState && roiDragState.draft ? [8 / zoomLevel, 5 / zoomLevel] : []);
+  ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+  ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+  ctx.setLineDash([]);
+  const handleSize = Math.max(8 / zoomLevel, 3);
+  const half = handleSize / 2;
+  const handles = [
+    [rect.x, rect.y],
+    [rect.x + rect.width, rect.y],
+    [rect.x, rect.y + rect.height],
+    [rect.x + rect.width, rect.y + rect.height],
+  ];
+  ctx.fillStyle = "#f8fafc";
+  ctx.strokeStyle = "#111827";
+  for (const [x, y] of handles) {
+    ctx.fillRect(x - half, y - half, handleSize, handleSize);
+    ctx.strokeRect(x - half, y - half, handleSize, handleSize);
+  }
+  ctx.restore();
+}
+
 function drawScene() {
   if (!currentImage) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1353,6 +1618,8 @@ function drawScene() {
     }
   }
 
+  drawRoiOverlay();
+
   ctx.restore();
   
   if (!showGT.checked) {
@@ -1397,6 +1664,7 @@ function hitTestBox(x, y) {
 }
 
 canvas.addEventListener("mousemove", (e) => {
+  if (roiSelectionMode || roiDragState) return;
   if (!showGT.checked || currentBoxes.length === 0) return;
   const { x, y } = getMousePosOnCanvas(e);
   const idx = hitTestBox(x, y);
@@ -1421,6 +1689,20 @@ canvas.addEventListener("mousedown", (e) => {
   clickStartX = e.clientX;
   clickStartY = e.clientY;
   if (e.button !== 0) return;
+  if (roiSelectionMode && currentImage) {
+    e.preventDefault();
+    const point = getMousePosOnCanvas(e);
+    const handle = roiHandleAt(point);
+    if (handle) {
+      roiDragState = { type: "resize", handle, start: point, original: Object.assign({}, activeRoi) };
+    } else if (pointInsideRoi(point)) {
+      roiDragState = { type: "move", start: point, original: Object.assign({}, activeRoi) };
+    } else {
+      roiDragState = { type: "draw", start: point, draft: normalizeRoiDrag(point, point) };
+    }
+    drawScene();
+    return;
+  }
   // Handle different modes
   if (e.shiftKey || e.code === "Space" || zoomMode === "pan") {
     isDragging = true;
@@ -1455,6 +1737,7 @@ canvas.addEventListener("mousedown", (e) => {
 });
 
 canvas.addEventListener("click", (e) => {
+  if (roiSelectionMode) return;
   if (!showGT.checked || currentBoxes.length === 0) return;
   
   // Check if this was a drag, not a click
@@ -1480,6 +1763,28 @@ canvas.addEventListener("click", (e) => {
 });
 
 canvas.addEventListener("mousemove", (e) => {
+  if (roiDragState) {
+    const point = getMousePosOnCanvas(e);
+    if (roiDragState.type === "draw") {
+      roiDragState.draft = normalizeRoiDrag(roiDragState.start, point);
+    } else if (roiDragState.type === "move") {
+      const dx = point.x - roiDragState.start.x;
+      const dy = point.y - roiDragState.start.y;
+      activeRoi = clampRoi({
+        x: roiDragState.original.x + dx,
+        y: roiDragState.original.y + dy,
+        width: roiDragState.original.width,
+        height: roiDragState.original.height,
+      });
+      updateRoiUI();
+    } else if (roiDragState.type === "resize") {
+      activeRoi = resizeRoiFromHandle(roiDragState.original, roiDragState.handle, point);
+      updateRoiUI();
+    }
+    drawScene();
+    return;
+  }
+
   if (isRectSelecting) {
     drawScene();
 
@@ -1531,6 +1836,16 @@ canvas.addEventListener("mousemove", (e) => {
 
 canvas.addEventListener("mouseup", (e) => {
   isDragging = false;
+  if (roiDragState) {
+    if (roiDragState.type === "draw" && roiDragState.draft) {
+      setActiveRoi(roiDragState.draft, "ROI selected.");
+    } else if (activeRoi) {
+      setActiveRoi(activeRoi);
+    }
+    roiDragState = null;
+    drawScene();
+    return;
+  }
   if (isRectSelecting) {
     isRectSelecting = false;
     const startPos = getMousePosOnCanvas({
@@ -1603,6 +1918,12 @@ async function loadFrameImageAndBoxes() {
       canvas.dataset.objurl = objUrl;
 
       currentImage = img;
+      const nextSourceSize = currentSourceSize();
+      if (activeRoi && roiSourceSize && !sameSourceSize(roiSourceSize, nextSourceSize)) {
+        clearActiveRoi("ROI cleared because the new sequence uses a different source resolution.");
+      } else if (activeRoi && nextSourceSize) {
+        roiSourceSize = Object.assign({}, nextSourceSize);
+      }
       currentMotFrame = boxJson.mot_frame ?? null;
       currentBoxes = annotationPayload
         ? flattenBoxesForFrame(currentMotFrame)
@@ -1904,6 +2225,7 @@ function updateExportFormatOptions() {
     exportFormat.appendChild(opt);
   }
   exportFormat.value = formats.includes(previous) ? previous : formats[0];
+  updateRoiExportControls();
 }
 
 function selectedExportLayers(mode) {
@@ -1948,8 +2270,108 @@ function triggerDownload(downloadUrl, filename = null) {
   link.remove();
 }
 
+async function saveRoiDirectoryFiles(files) {
+  if (!("showDirectoryPicker" in window)) {
+    throw new Error("Folder saving is not supported by this browser.");
+  }
+  const rootHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+  const folderCache = new Map();
+  async function getFolder(pathParts) {
+    let handle = rootHandle;
+    let key = "";
+    for (const part of pathParts) {
+      key = key ? `${key}/${part}` : part;
+      if (!folderCache.has(key)) {
+        folderCache.set(key, await handle.getDirectoryHandle(part, { create: true }));
+      }
+      handle = folderCache.get(key);
+    }
+    return handle;
+  }
+  for (const file of files || []) {
+    const parts = String(file.relative_path || "").split("/").filter(Boolean);
+    if (!parts.length || !file.download_url) continue;
+    const filename = parts.pop();
+    const folder = await getFolder(parts);
+    const response = await fetch(file.download_url);
+    if (!response.ok) throw new Error(`Failed to fetch ${file.relative_path}`);
+    const writable = await (await folder.getFileHandle(filename, { create: true })).createWritable();
+    await writable.write(await response.blob());
+    await writable.close();
+  }
+}
+
+function roiExportPayload() {
+  const range = currentFrameRange();
+  return {
+    target: "roi",
+    dataset: datasetSelect.value,
+    split: splitSelect.value,
+    sequence: seqSelect.value,
+    frame: currentExportFrame(),
+    roi: activeRoi,
+    frame_range: {
+      mode: roiRangeMode.value,
+      start: roiRangeStart.value,
+      end: roiRangeEnd.value,
+    },
+    content: roiContentSelect.value,
+    annotated_rendering: roiAnnotatedMode.value,
+    outputs: roiOutputSelect.value,
+    image_format: exportFormat.value,
+    format: exportFormat.value,
+    include_annotations: roiContentSelect.value !== "raw",
+    annotation_mode: "visible",
+    selected_layers: visibleLayerNames(),
+    layer_overrides: exportLayerOverrides(),
+    custom_prefix: roiPrefixInput.value || seqSelect.value || "roi",
+    fps: annotationPayload ? annotationPayload.fps : 25,
+    range_total: range.total,
+  };
+}
+
 async function runExport() {
   const target = exportTarget.value;
+  if (target === "roi") {
+    const range = currentFrameRange();
+    if (!activeRoi) {
+      exportStatus.textContent = "Draw or enter a valid ROI before exporting.";
+      return;
+    }
+    if (range.error) {
+      exportStatus.textContent = range.error;
+      return;
+    }
+    try {
+      exportBtn.disabled = true;
+      exportStatus.textContent = "Exporting ROI batch...";
+      const result = await runJobWithProgress(
+        "/api/export/start",
+        roiExportPayload(),
+        "Exporting ROI Batch"
+      );
+      if (!result.available) throw new Error(result.error || "ROI export unavailable");
+      if (roiImageDestination.value === "folder" && (roiOutputSelect.value === "images" || roiOutputSelect.value === "both")) {
+        await saveRoiDirectoryFiles(result.directory_files || []);
+        exportStatus.innerHTML = `ROI export complete. Folder saved. <a class="exportLink" href="${result.download_url}">Download ZIP fallback</a>`;
+      } else if (result.download_url) {
+        const filename = result.download_url.split("/").pop();
+        triggerDownload(result.download_url, filename);
+        exportStatus.innerHTML = `ROI export complete. Download started. <a class="exportLink" href="${result.download_url}">Download again</a>`;
+      }
+      if (result.videos && result.videos.length) {
+        for (const video of result.videos) {
+          if (video.download_url) triggerDownload(video.download_url, video.download_url.split("/").pop());
+        }
+      }
+    } catch (e) {
+      exportStatus.textContent = `ROI export failed: ${e.message}`;
+    } finally {
+      exportBtn.disabled = false;
+      updateRoiExportControls();
+    }
+    return;
+  }
   const mode = getRadio("exportAnnotationMode", "visible");
   const payload = {
     dataset: datasetSelect.value,
@@ -1987,9 +2409,13 @@ async function runExport() {
 function setExportModalOpen(isOpen) {
   exportModal.style.display = isOpen ? "flex" : "none";
   if (isOpen) {
+    const current = currentExportFrame();
+    if (roiRangeStart && !roiRangeStart.value) roiRangeStart.value = current;
+    if (roiRangeEnd && !roiRangeEnd.value) roiRangeEnd.value = current;
     updateExportFormatOptions();
     populateExportLayers();
     exportStatus.textContent = "Choose an export target and format.";
+    updateRoiUI();
   }
 }
 
@@ -2274,6 +2700,39 @@ progressCloseBtn.addEventListener("click", () => {
     progressModal.style.display = "none";
   }
 });
+if (progressCancelBtn) {
+  progressCancelBtn.addEventListener("click", async () => {
+    if (!activeProgressJob) return;
+    progressCancelBtn.disabled = true;
+    progressMessage.textContent = "Cancelling...";
+    try {
+      await postJSON(`/api/jobs/${encodeURIComponent(activeProgressJob)}/cancel`, {});
+    } catch (e) {
+      progressMessage.textContent = `Cancel failed: ${e.message}`;
+      progressCancelBtn.disabled = false;
+    }
+  });
+}
+
+if (roiModeBtn) {
+  roiModeBtn.addEventListener("click", () => setRoiSelectionMode(!roiSelectionMode));
+}
+if (roiSelectBtn) {
+  roiSelectBtn.addEventListener("click", () => setRoiSelectionMode(true));
+}
+if (roiClearBtn) {
+  roiClearBtn.addEventListener("click", () => clearActiveRoi("ROI cleared."));
+}
+if (roiDialogClearBtn) {
+  roiDialogClearBtn.addEventListener("click", () => clearActiveRoi("ROI cleared."));
+}
+[roiXInput, roiYInput, roiWInput, roiHInput].forEach(input => {
+  if (input) input.addEventListener("change", updateRoiFromFields);
+});
+[roiRangeMode, roiRangeStart, roiRangeEnd, roiContentSelect, roiAnnotatedMode, roiOutputSelect, roiImageDestination, roiPrefixInput].forEach(input => {
+  if (input) input.addEventListener("input", updateRoiExportControls);
+  if (input) input.addEventListener("change", updateRoiExportControls);
+});
 
 colorPickerInput.addEventListener("input", (e) => {
   applyPreviewColor(e.target.value);
@@ -2453,6 +2912,14 @@ document.addEventListener("keydown", (e) => {
   const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
   if (tag === "input" || tag === "select" || tag === "textarea") return;
 
+  if (e.key === "Escape" && (roiDragState || roiSelectionMode)) {
+    e.preventDefault();
+    roiDragState = null;
+    setRoiSelectionMode(false);
+    drawScene();
+    return;
+  }
+
   if (e.ctrlKey || e.metaKey) {
     if (e.key === "+" || e.key === "=") {
       e.preventDefault();
@@ -2485,6 +2952,7 @@ document.addEventListener("keydown", (e) => {
     updatePlaybackSpeed();
     await refreshAll();
     updateZoomButtonsUI();
+    updateRoiUI();
   } catch (e) {
     setStatus(`Error: ${e.message}`);
   }
