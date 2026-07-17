@@ -5,6 +5,7 @@ import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from inspect import signature
 from typing import Any, Callable
 
 
@@ -19,6 +20,7 @@ class Job:
     result: dict[str, Any] | None = None
     error: str | None = None
     traceback: str | None = None
+    cancel_requested: bool = False
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -32,6 +34,7 @@ class Job:
             "message": self.message,
             "result": self.result,
             "error": self.error,
+            "cancel_requested": self.cancel_requested,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -59,6 +62,29 @@ class JobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def cancel(self, job_id: str) -> Job | None:
+        """Request cancellation for a queued or running job."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
+            if job.status in {"done", "failed", "cancelled"}:
+                return job
+            job.cancel_requested = True
+            job.message = "Cancellation requested"
+            if job.status == "queued":
+                job.status = "cancelled"
+            else:
+                job.status = "cancelling"
+            job.updated_at = datetime.now(timezone.utc).isoformat()
+            return job
+
+    def is_cancelled(self, job_id: str) -> bool:
+        """Return whether a job has been asked to stop."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return bool(job and job.cancel_requested)
+
     def update(self, job_id: str, progress: int, message: str) -> None:
         """Update job progress."""
         with self._lock:
@@ -75,13 +101,25 @@ class JobManager:
             job.updated_at = datetime.now(timezone.utc).isoformat()
 
         def progress(percent: int, message: str) -> None:
+            if self.is_cancelled(job_id):
+                raise RuntimeError("Job cancelled")
             self.update(job_id, percent, message)
 
         try:
-            result = work(progress)
+            if len(signature(work).parameters) >= 2:
+                result = work(progress, lambda: self.is_cancelled(job_id))
+            else:
+                result = work(progress)
         except Exception as exc:
             with self._lock:
                 job = self._jobs[job_id]
+                if job.cancel_requested:
+                    job.status = "cancelled"
+                    job.error = None
+                    job.traceback = None
+                    job.message = "Cancelled"
+                    job.updated_at = datetime.now(timezone.utc).isoformat()
+                    return
                 job.status = "failed"
                 job.error = str(exc)
                 job.traceback = traceback.format_exc()
@@ -91,6 +129,11 @@ class JobManager:
 
         with self._lock:
             job = self._jobs[job_id]
+            if job.cancel_requested:
+                job.status = "cancelled"
+                job.message = "Cancelled"
+                job.updated_at = datetime.now(timezone.utc).isoformat()
+                return
             job.status = "done"
             job.progress = 100
             job.message = "Complete"

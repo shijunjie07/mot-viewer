@@ -49,6 +49,20 @@ def _public_video_payload(payload: dict) -> dict:
     return public_payload
 
 
+def _public_export_payload(payload: dict) -> dict:
+    """Hide local filesystem paths from export job results."""
+    if isinstance(payload, list):
+        return [_public_export_payload(item) for item in payload]
+    if not isinstance(payload, dict):
+        return payload
+    public_payload = {}
+    for key, value in payload.items():
+        if key in {"path", "zip_path"}:
+            continue
+        public_payload[key] = _public_export_payload(value)
+    return public_payload
+
+
 @api_bp.get("/datasets")
 def api_datasets():
     """Return dataset definitions for the frontend selector."""
@@ -154,6 +168,15 @@ def api_video_render():
 def api_job(job_id: str):
     """Return background job progress."""
     job = _job_manager().get(job_id)
+    if job is None:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job.to_dict())
+
+
+@api_bp.post("/jobs/<job_id>/cancel")
+def api_job_cancel(job_id: str):
+    """Request cancellation for a background job."""
+    job = _job_manager().cancel(job_id)
     if job is None:
         return jsonify({"error": "Job not found"}), 404
     return jsonify(job.to_dict())
@@ -293,19 +316,26 @@ def api_export_start():
         "frame": "Exporting Frame",
         "images": "Exporting Image Sequence",
         "video": "Exporting Annotated Video",
+        "roi": "Exporting ROI Batch",
     }
     if target not in titles:
         return jsonify({"error": f"Unsupported export target: {target}"}), 400
     export_manager = _export_manager()
 
-    def work(progress):
+    def work(progress, is_cancelled=None):
         if target == "frame":
             out_path = export_manager.export_frame(payload, progress=progress)
+            return {"available": True, "download_url": _download_url(out_path)}
         elif target == "images":
             out_path = export_manager.export_images_zip(payload, progress=progress)
+            return {"available": True, "download_url": _download_url(out_path)}
+        elif target == "roi":
+            return _public_export_payload(
+                export_manager.export_roi_batch(payload, progress=progress, is_cancelled=is_cancelled)
+            )
         else:
             out_path = export_manager.export_video(payload, progress=progress)
-        return {"available": True, "download_url": _download_url(out_path)}
+            return {"available": True, "download_url": _download_url(out_path)}
 
     job = _job_manager().start(titles[target], work)
     return jsonify({"job_id": job.job_id, "status": job.status}), 202
