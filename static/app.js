@@ -1095,6 +1095,10 @@ function updateRoiExportControls() {
   roiExportPanel.hidden = !isRoi;
   if (exportAnnotationGroup) exportAnnotationGroup.style.display = isRoi ? "none" : "";
   if (exportLayerList) exportLayerList.style.display = isRoi ? "none" : "";
+  if (!isRoi) {
+    exportBtn.disabled = false;
+    return;
+  }
   if (roiCustomRange) roiCustomRange.hidden = roiRangeMode.value !== "custom";
   const content = roiContentSelect.value;
   roiAnnotatedModeGroup.style.display = content === "raw" ? "none" : "";
@@ -2354,10 +2358,12 @@ async function runExport() {
       if (roiImageDestination.value === "folder" && (roiOutputSelect.value === "images" || roiOutputSelect.value === "both")) {
         await saveRoiDirectoryFiles(result.directory_files || []);
         exportStatus.innerHTML = `ROI export complete. Folder saved. <a class="exportLink" href="${result.download_url}">Download ZIP fallback</a>`;
-      } else if (result.download_url) {
+      } else if (result.download_url && roiOutputSelect.value !== "video") {
         const filename = result.download_url.split("/").pop();
         triggerDownload(result.download_url, filename);
         exportStatus.innerHTML = `ROI export complete. Download started. <a class="exportLink" href="${result.download_url}">Download again</a>`;
+      } else if (result.download_url) {
+        exportStatus.innerHTML = `ROI export complete. <a class="exportLink" href="${result.download_url}">Download again</a>`;
       }
       if (result.videos && result.videos.length) {
         for (const video of result.videos) {
