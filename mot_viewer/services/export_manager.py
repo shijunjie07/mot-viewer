@@ -14,6 +14,18 @@ from typing import Callable
 
 import cv2
 
+from .roi import (
+    RoiRect,
+    SourceSize,
+    clamp_rect,
+    clip_box_to_roi,
+    make_frame_filename,
+    make_video_filename,
+    resolve_frame_range,
+    sanitize_prefix,
+    validate_rect,
+)
+
 IMAGE_FORMATS = {"jpg", "jpeg", "png", "svg"}
 VIDEO_FORMATS = {"mp4"}
 EXPORT_FORMATS = {
@@ -191,6 +203,31 @@ def render_svg(frame_path: Path, boxes: list[dict]) -> bytes:
     return "\n".join(items).encode("utf-8")
 
 
+def render_svg_from_image(image, boxes: list[dict]) -> bytes:
+    """Create an SVG that embeds an already-rendered BGR image."""
+    ok, buf = cv2.imencode(".png", image)
+    if not ok:
+        raise RuntimeError("Failed to encode SVG image payload")
+    height, width = image.shape[:2]
+    embedded = base64.b64encode(buf.tobytes()).decode("ascii")
+    items = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+        f'<image href="data:image/png;base64,{embedded}" x="0" y="0" width="{width}" height="{height}"/>',
+    ]
+    for box in boxes:
+        color = html.escape(box.get("color", "#35e6fd"))
+        x = float(box.get("x", box.get("x1", 0)))
+        y = float(box.get("y", box.get("y1", 0)))
+        w = float(box.get("w", box.get("x2", 0) - box.get("x1", 0)))
+        h = float(box.get("h", box.get("y2", 0) - box.get("y1", 0)))
+        items.append(
+            f'<rect x="{x:.2f}" y="{y:.2f}" width="{w:.2f}" height="{h:.2f}" '
+            f'stroke="{color}" fill="none" stroke-width="2"/>'
+        )
+    items.append("</svg>")
+    return "\n".join(items).encode("utf-8")
+
+
 class ExportManager:
     """Create frame, image ZIP, and MP4 exports."""
 
@@ -314,6 +351,323 @@ class ExportManager:
         )
         self._encode_rendered_video(files, annotation_payload, selected_layers, fps, out_path, progress)
         return out_path
+
+    def export_roi_batch(
+        self,
+        payload: dict,
+        progress: Callable[[int, str], None] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> dict:
+        """Export a fixed source-coordinate ROI as images, video, or both."""
+        annotation_payload, selected_layers = self._context(payload)
+        files = self.viewer.sequence_frame_files(
+            payload.get("dataset"), payload.get("split", ""), payload.get("sequence", "")
+        )
+        roi = self._resolve_roi(payload, files[0])
+        frame_records = self._resolve_roi_frame_records(payload, annotation_payload, files)
+        if not frame_records:
+            raise ValueError("ROI frame range produced no frames")
+
+        content_modes = self._roi_content_modes(payload)
+        outputs = self._roi_outputs(payload)
+        image_format = validate_export_request("images", payload.get("image_format") or payload.get("format") or "png")
+        prefix = sanitize_prefix(payload.get("custom_prefix") or payload.get("sequence") or "roi")
+        annotated_mode = payload.get("annotated_rendering") or payload.get("annotation_rendering") or "rerender"
+        fps = float(payload.get("fps") or annotation_payload.get("fps") or 25)
+
+        self._ensure_dir()
+        result: dict = {
+            "available": True,
+            "roi": roi.__dict__,
+            "frame_range": {
+                "start": frame_records[0][0],
+                "end": frame_records[-1][0],
+                "total": len(frame_records),
+            },
+            "outputs": [],
+            "images": [],
+            "videos": [],
+            "directory_files": [],
+        }
+
+        if "images" in outputs:
+            zip_path, directory_files = self._export_roi_images(
+                frame_records,
+                annotation_payload,
+                selected_layers,
+                roi,
+                prefix,
+                content_modes,
+                annotated_mode,
+                image_format,
+                progress,
+                is_cancelled,
+            )
+            result["zip_path"] = str(zip_path)
+            result["download_url"] = self._download_path(zip_path)
+            result["images"].append({"path": str(zip_path), "download_url": self._download_path(zip_path), "format": "zip"})
+            result["directory_files"] = directory_files
+            result["outputs"].append("images")
+
+        if "video" in outputs:
+            videos = []
+            for content in content_modes:
+                if content not in {"raw", "annotated"}:
+                    continue
+                video_path = self._export_roi_video(
+                    frame_records,
+                    annotation_payload,
+                    selected_layers,
+                    roi,
+                    prefix,
+                    content,
+                    annotated_mode,
+                    fps,
+                    progress,
+                    is_cancelled,
+                )
+                videos.append(
+                    {
+                        "path": str(video_path),
+                        "download_url": self._download_path(video_path),
+                        "content": content,
+                        "format": "mp4",
+                    }
+                )
+            result["videos"] = videos
+            if "download_url" not in result and videos:
+                result["download_url"] = videos[0]["download_url"]
+            result["outputs"].append("video")
+
+        if progress:
+            progress(100, "ROI export ready")
+        return result
+
+    def _resolve_roi(self, payload: dict, sample_frame: Path) -> RoiRect:
+        roi_payload = payload.get("roi") or {}
+        image = cv2.imread(str(sample_frame), cv2.IMREAD_COLOR)
+        if image is None:
+            raise FileNotFoundError(f"Failed to read image: {sample_frame}")
+        height, width = image.shape[:2]
+        roi = RoiRect(
+            int(round(float(roi_payload.get("x", 0)))),
+            int(round(float(roi_payload.get("y", 0)))),
+            int(round(float(roi_payload.get("width", 0)))),
+            int(round(float(roi_payload.get("height", 0)))),
+        )
+        valid = validate_rect(roi)
+        if not valid.valid:
+            raise ValueError(valid.error or "Invalid ROI")
+        return clamp_rect(roi, SourceSize(width, height))
+
+    def _resolve_roi_frame_records(self, payload: dict, annotation_payload: dict, files: list[Path]) -> list[tuple[int, Path]]:
+        first = int(annotation_payload.get("first_frame") or 1)
+        last = first + len(files) - 1
+        frame_range = payload.get("frame_range") or {}
+        mode = frame_range.get("mode") or payload.get("range_mode") or "current"
+        current = int(payload.get("frame") or frame_range.get("current") or first)
+        start, end, _, error = resolve_frame_range(
+            mode,
+            current,
+            first,
+            last,
+            frame_range.get("start") or payload.get("custom_start"),
+            frame_range.get("end") or payload.get("custom_end"),
+        )
+        if error:
+            raise ValueError(error)
+        records = []
+        for idx, frame_path in enumerate(files):
+            frame_number = self.viewer.parse_frame_num_from_name(frame_path.name) or (first + idx)
+            if start <= frame_number <= end:
+                records.append((frame_number, frame_path))
+        return records
+
+    def _roi_content_modes(self, payload: dict) -> list[str]:
+        content = (payload.get("content") or "raw").strip().lower()
+        if content in {"both", "raw+annotated", "raw_annotated"}:
+            return ["raw", "annotated"]
+        if content in {"raw", "annotated"}:
+            return [content]
+        raise ValueError(f"Unsupported ROI content: {content}")
+
+    def _roi_outputs(self, payload: dict) -> set[str]:
+        outputs = (payload.get("outputs") or payload.get("output") or "images").strip().lower()
+        if outputs in {"both", "images+video", "image_sequence+video"}:
+            return {"images", "video"}
+        if outputs in {"images", "image_sequence", "zip"}:
+            return {"images"}
+        if outputs == "video":
+            return {"video"}
+        raise ValueError(f"Unsupported ROI output: {outputs}")
+
+    def _export_roi_images(
+        self,
+        frame_records: list[tuple[int, Path]],
+        annotation_payload: dict,
+        selected_layers: list[str],
+        roi: RoiRect,
+        prefix: str,
+        content_modes: list[str],
+        annotated_mode: str,
+        image_format: str,
+        progress: Callable[[int, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> tuple[Path, list[dict]]:
+        export_name = prefix
+        zip_path = self._unique_path(f"{export_name}_roi_images_{image_format}.zip")
+        directory = self._unique_dir(f"{export_name}_roi_images")
+        directory_files: list[dict] = []
+        total = len(frame_records) * len(content_modes)
+        done = 0
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for frame_number, frame_path in frame_records:
+                for content in content_modes:
+                    self._raise_if_cancelled(is_cancelled)
+                    rendered, local_boxes = self._render_roi_image(
+                        frame_path,
+                        annotation_payload,
+                        selected_layers,
+                        frame_number,
+                        roi,
+                        content,
+                        annotated_mode,
+                    )
+                    filename = make_frame_filename(prefix, content, frame_number, image_format)
+                    arcname = f"{export_name}/{content}/{filename}"
+                    if image_format == "svg":
+                        data = render_svg_from_image(rendered, local_boxes if content == "annotated" else [])
+                    else:
+                        data = encode_raster(rendered, image_format)
+                    archive.writestr(arcname, data)
+                    out_file = directory / content / filename
+                    out_file.parent.mkdir(parents=True, exist_ok=True)
+                    out_file.write_bytes(data)
+                    directory_files.append(
+                        {
+                            "path": str(out_file),
+                            "relative_path": f"{content}/{filename}",
+                            "download_url": self._download_path(out_file),
+                            "content": content,
+                        }
+                    )
+                    done += 1
+                    if progress:
+                        progress(max(1, min(90, int(done / total * 90))), f"Rendering ROI frame {done} / {total}")
+        return zip_path, directory_files
+
+    def _export_roi_video(
+        self,
+        frame_records: list[tuple[int, Path]],
+        annotation_payload: dict,
+        selected_layers: list[str],
+        roi: RoiRect,
+        prefix: str,
+        content: str,
+        annotated_mode: str,
+        fps: float,
+        progress: Callable[[int, str], None] | None,
+        is_cancelled: Callable[[], bool] | None,
+    ) -> Path:
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            raise RuntimeError("ffmpeg not found")
+        out_path = self._unique_path(make_video_filename(prefix, content, frame_records[0][0], frame_records[-1][0]))
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            total = len(frame_records)
+            for idx, (frame_number, frame_path) in enumerate(frame_records, start=1):
+                self._raise_if_cancelled(is_cancelled)
+                rendered, _ = self._render_roi_image(
+                    frame_path,
+                    annotation_payload,
+                    selected_layers,
+                    frame_number,
+                    roi,
+                    content,
+                    annotated_mode,
+                )
+                cv2.imwrite(str(tmp_dir / f"{idx:06d}.png"), rendered)
+                if progress:
+                    progress(max(1, min(85, int(idx / total * 85))), f"Rendering ROI video frame {idx} / {total}")
+            if progress:
+                progress(92, f"Encoding {content} MP4")
+            command = [
+                ffmpeg,
+                "-y",
+                "-framerate",
+                str(fps),
+                "-i",
+                str(tmp_dir / "%06d.png"),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv444p",
+                "-movflags",
+                "+faststart",
+                str(out_path),
+            ]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                raise RuntimeError(f"ffmpeg ROI video export failed: {result.stderr.strip()}")
+        return out_path
+
+    def _render_roi_image(
+        self,
+        frame_path: Path,
+        annotation_payload: dict,
+        selected_layers: list[str],
+        frame_number: int,
+        roi: RoiRect,
+        content: str,
+        annotated_mode: str,
+    ) -> tuple:
+        image = cv2.imread(str(frame_path), cv2.IMREAD_COLOR)
+        if image is None:
+            raise FileNotFoundError(f"Failed to read image: {frame_path}")
+        height, width = image.shape[:2]
+        safe_roi = clamp_rect(roi, SourceSize(width, height))
+        boxes = boxes_for_frame(annotation_payload, frame_number, selected_layers)
+
+        if content == "raw" or not boxes:
+            return image[safe_roi.y : safe_roi.y2, safe_roi.x : safe_roi.x2].copy(), []
+
+        mode = (annotated_mode or "rerender").strip().lower()
+        if mode in {"rendered", "current", "crop-rendered", "crop_current_rendered", "crop-current-rendered"}:
+            full = image.copy()
+            draw_boxes(full, boxes)
+            return full[safe_roi.y : safe_roi.y2, safe_roi.x : safe_roi.x2].copy(), []
+
+        crop = image[safe_roi.y : safe_roi.y2, safe_roi.x : safe_roi.x2].copy()
+        local_boxes = []
+        for box in boxes:
+            clipped = clip_box_to_roi(box, safe_roi)
+            if clipped:
+                local_boxes.append(clipped)
+        if local_boxes:
+            draw_boxes(crop, local_boxes)
+        return crop, local_boxes
+
+    def _raise_if_cancelled(self, is_cancelled: Callable[[], bool] | None) -> None:
+        if is_cancelled and is_cancelled():
+            raise RuntimeError("Export cancelled")
+
+    def _download_path(self, path: Path) -> str:
+        try:
+            relative = path.resolve().relative_to(self.export_dir.resolve())
+            return f"/downloads/exports/{relative.as_posix()}"
+        except ValueError:
+            return f"/downloads/exports/{path.name}"
+
+    def _unique_dir(self, dirname: str) -> Path:
+        base = self.export_dir / safe_name(dirname)
+        candidate = base
+        counter = 1
+        while candidate.exists():
+            candidate = self.export_dir / f"{base.name}_{counter}"
+            counter += 1
+        candidate.mkdir(parents=True, exist_ok=False)
+        return candidate
 
     def _encode_rendered_video(
         self,
